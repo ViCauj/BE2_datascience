@@ -108,15 +108,17 @@ class BaseSearchEngine:
 
 
 class BagOfWordsSearchEngine(BaseSearchEngine):
-    def __init__(self, corpus: Dict[str, Dict], queries: Dict[str, Dict]):
-        super().__init__(corpus, queries)
-        self.vectorizer = CountVectorizer(stop_words="english", max_features=50000)
+    def __init__(self, corpus: Dict, queries: Dict, **kwargs):
+        super().__init__(corpus, queries, **kwargs)
+        default = {"stop_words": "english", "max_features": 50000}
+        self.vectorizer = CountVectorizer(**{**default, **kwargs})
 
 
 class TfidfSearchEngine(BaseSearchEngine):
-    def __init__(self, corpus: Dict[str, Dict], queries: Dict[str, Dict]):
-        super().__init__(corpus, queries)
-        self.vectorizer = TfidfVectorizer(stop_words="english", max_features=50000)
+    def __init__(self, corpus: Dict, queries: Dict, **kwargs):
+        super().__init__(corpus, queries, **kwargs)
+        default = {"stop_words": "english", "max_features": 50000}
+        self.vectorizer = TfidfVectorizer(**{**default, **kwargs})
 
 
 class DenseSearchEngine(BaseSearchEngine):
@@ -125,11 +127,10 @@ class DenseSearchEngine(BaseSearchEngine):
         corpus: Dict[str, Dict],
         queries: Dict[str, Dict],
         model_name: str = "all-MiniLM-L6-v2",
-        dump_path: str = "outputs/dense_embeddings.npy",
     ):
         super().__init__(corpus, queries)
         self.model_name = model_name
-        self.dump_path = dump_path
+        self.dump_path = "outputs/dense_embeddings_" + model_name + ".npy"
 
         print(f"Chargement du modèle SentenceTransformer : {model_name}...")
         self.model = SentenceTransformer(model_name)
@@ -155,7 +156,9 @@ class DenseSearchEngine(BaseSearchEngine):
         np.save(self.dump_path, self.matrix)
         print(f"Embeddings sauvegardés dans {self.dump_path}.")
 
-    def search(self, query_id: str, top_k: int = 10) -> List[Tuple[str, float]]:
+    def search(
+        self, query_id: str, candidate_ids: Optional[List[str]] = None, top_k: int = 10
+    ) -> List[Tuple[str, float]]:
         """
         Surcharge de la méthode search car on utilise self.model.encode() et non vectorizer.transform().
         """
@@ -169,14 +172,20 @@ class DenseSearchEngine(BaseSearchEngine):
         query_text = query_data.get("text", "")
         query_vec = self.model.encode([query_text])
 
-        similarities = cosine_similarity(query_vec, self.matrix).flatten()
-        top_indices = np.argsort(similarities)[-top_k:][::-1]
+        if candidate_ids:
+            valid_candidates = [cid for cid in candidate_ids if cid in self.id_to_index]
+            if not valid_candidates:
+                return []
 
-        results = []
-        for idx in top_indices:
-            doc_id = self.doc_ids[idx]
-            score = similarities[idx]
-            results.append((doc_id, score))
+            indices = [self.id_to_index[cid] for cid in valid_candidates]
+            candidate_matrix = self.matrix[indices]
+            similarities = cosine_similarity(query_vec, candidate_matrix).flatten()
+            sorted_indices = np.argsort(similarities)[::-1]
 
-        return results
-
+            return [
+                (valid_candidates[i], similarities[i]) for i in sorted_indices[:top_k]
+            ]
+        else:
+            similarities = cosine_similarity(query_vec, self.matrix).flatten()
+            top_indices = np.argsort(similarities)[-top_k:][::-1]
+            return [(self.doc_ids[i], similarities[i]) for i in top_indices]
