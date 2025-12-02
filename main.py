@@ -5,6 +5,7 @@ from src import (
     load_qrels,
     BagOfWordsSearchEngine,
     TfidfSearchEngine,
+    DenseSearchEngine,
 )
 import sys
 
@@ -24,15 +25,12 @@ def main():
 
     first_query_id = next(iter(queries))
 
-    engine = BagOfWordsSearchEngine(corpus, queries)
-    engine.fit()
-    results = engine.search(first_query_id, top_k=5)
-    engine.print_results(results, query_id=first_query_id, qrels=qrels)
-
-    engine = TfidfSearchEngine(corpus, queries)
-    engine.fit()
-    results = engine.search(first_query_id, top_k=5)
-    engine.print_results(results, query_id=first_query_id, qrels=qrels)
+    for model in [BagOfWordsSearchEngine, TfidfSearchEngine, DenseSearchEngine]:
+        print("")
+        engine = model(corpus, queries)
+        engine.fit()
+        results = engine.search(first_query_id, top_k=25)
+        engine.print_results(results, query_id=first_query_id, qrels=qrels)
 
 
 if __name__ == "__main__":
