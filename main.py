@@ -1,4 +1,4 @@
-from src import load_corpus, load_queries, load_qrels
+from src import load_corpus, load_queries, load_qrels, TfidfSearchEngine
 import sys
 
 
