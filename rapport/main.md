@@ -46,9 +46,9 @@ Le corpus a été modélisé comme un graphe orienté $G=(V, E)$ via la classe `
 
 La visualisation du squelette du graphe (ci-dessous) montre clairement que les articles ne se citent pas au hasard : ils forment des grappes denses. Cela valide notre hypothèse d'**homophilie** : un article pertinent a une forte probabilité d'être connecté à d'autres articles pertinents.
 
-<p align="center"><img src="../outputs/Squelette_graphe_top_1500.png" width="400"></p>
+<p align="center"><img src="../outputs/Squelette_graphe_top_1500.png" width="800"></p>
 
-*Figure 1 : Visualisation des 500 articles les plus connectés (Squelette du graphe). On observe des clusters distincts correspondant aux différents domaines scientifiques.*
+*Figure 1 : Visualisation des 1500 articles les plus connectés (Squelette du graphe). On observe des clusters distincts correspondant aux différents domaines scientifiques.*
 
 ---
 
@@ -56,15 +56,15 @@ La visualisation du squelette du graphe (ci-dessous) montre clairement que les a
 
 Nous avons structuré notre développement en quatre phases distinctes, chaque modèle visant à combler les lacunes du précédent.
 
-### 3.1. Phase 1 : Approches Lexicales (La Baseline)
+### 3.1. Phase 1 : Approches Lexicales
 Nous avons débuté par des modèles classiques basés sur la fréquence des mots.
-* **`BagOfWordsCountSearchEngine` :** Utilise un simple comptage des termes. C'est la baseline absolue.
+* **`BagOfWordsCountSearchEngine` :** Utilise un simple comptage des termes.
 * **`BagOfWordsTfidfSearchEngine` :** Utilise la pondération TF-IDF pour pénaliser les termes trop fréquents dans le corpus et valoriser les termes rares spécifiques.
 
 **Limites :** Ces modèles (AUC ~0.80) échouent dès qu'il n'y a pas de correspondance exacte de mots. Ils ne "comprennent" pas le texte.
 
-### 3.2. Phase 2 : Approche Sémantique (Le saut technologique)
-C'est la raison d'être de ce projet : combler le fossé sémantique. Nous avons implémenté le **`DenseSearchEngine`**.
+### 3.2. Phase 2 : Approche Sémantique
+C'est la raison d'être de ce projet : combler le fossé sémantique. Pour ça, nous avons implémenté le **`DenseSearchEngine`**.
 
 Cette approche utilise des techniques de **Deep Learning** modernes, spécifiquement les Transformers (**Sentence-BERT** `all-MiniLM-L6-v2`). Contrairement aux méthodes précédentes qui voient le texte comme un sac de mots, ce modèle transforme chaque phrase en un vecteur dense de 384 dimensions.
 * **Pourquoi c'est crucial :** Dans cet espace vectoriel, la distance entre deux points reflète leur similarité de sens. Le modèle rapproche naturellement "Deep Learning" et "Neural Networks", même s'ils ne partagent aucun mot.

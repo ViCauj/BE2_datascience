@@ -193,7 +193,7 @@ class CitationGraph:
 
         # Sauvegarde
         try:
-            plt.savefig(output_path, dpi=300, bbox_inches="tight")
+            plt.savefig(output_path, dpi=500, bbox_inches="tight", transparent=True)
             plt.close()
             print(f"Visualisation sauvegardée : {output_path}")
         except Exception as e:
