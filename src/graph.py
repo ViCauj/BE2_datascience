@@ -1,124 +1,169 @@
 import networkx as nx
 import numpy as np
-from typing import Dict, List, Any
 import matplotlib.pyplot as plt
+from typing import Dict, List, Any, Optional
 
 
-def build_citation_graph(corpus: Dict[str, Dict]) -> nx.DiGraph:
+class CitationGraph:
     """
-    Construit le graphe de citations à partir du corpus.
-    Gère les références sortantes (references) ET entrantes (cited_by).
+    Classe responsable de la construction, de l'analyse et de la visualisation
+    du graphe de citations.
     """
-    print("Construction du graphe de citations...")
-    G = nx.DiGraph()
-    G.add_nodes_from(corpus.keys())
 
-    for doc_id, doc in corpus.items():
-        meta = doc.get("metadata", {})
+    def __init__(self, corpus: Dict[str, Dict]):
+        self.corpus = corpus
+        self.G = nx.DiGraph()
+        self.stats = {}
 
-        refs_out = doc.get("references", [])
+    def build(self):
+        """
+        Construit le graphe à partir du corpus.
+        """
 
-        for ref_id in refs_out:
-            if ref_id in corpus:
-                G.add_edge(doc_id, ref_id)
+        print("Construction du graphe...")
+        self.G = nx.DiGraph()
+        self.G.add_nodes_from(self.corpus.keys())
 
-        cited_by_list = meta.get("cited_by", [])
+        for doc_id, doc in self.corpus.items():
+            meta = doc.get("metadata", {})
 
-        for citing_id in cited_by_list:
-            if citing_id in corpus:
-                if not G.has_edge(citing_id, doc_id):
-                    G.add_edge(citing_id, doc_id)
+            # Liens sortants
+            refs_out = doc.get("references", [])
+            for ref_id in refs_out:
+                if ref_id in self.corpus:
+                    self.G.add_edge(doc_id, ref_id)
 
-    print(
-        f"Graphe construit : {G.number_of_nodes()} noeuds, {G.number_of_edges()} arcs."
-    )
-    return G
+            # Liens entrants
+            cited_by_list = meta.get("cited_by", [])
+            for citing_id in cited_by_list:
+                if citing_id in self.corpus:
+                    if not self.G.has_edge(citing_id, doc_id):
+                        self.G.add_edge(citing_id, doc_id)
 
+        print(
+            f"Graphe construit : {self.G.number_of_nodes()} nœuds, {self.G.number_of_edges()} arcs."
+        )
 
-def get_graph_statistics(G: nx.DiGraph) -> Dict[str, Any]:
-    stats = {}
-    stats["num_nodes"] = G.number_of_nodes()
-    stats["num_edges"] = G.number_of_edges()
-    stats["density"] = nx.density(G)
+    def compute_smoothed_embeddings(
+        self, doc_ids: List[str], base_matrix: np.ndarray, alpha: float = 0.7
+    ) -> np.ndarray:
+        """
+        Utilise la structure du graphe pour lisser les embeddings fournis.
+        """
 
-    in_degrees = [d for n, d in G.in_degree()]
-    out_degrees = [d for n, d in G.out_degree()]
+        id_to_idx = {doc_id: i for i, doc_id in enumerate(doc_ids)}
+        G_undir = self.G.to_undirected()
 
-    stats["avg_in_degree"] = np.mean(in_degrees) if in_degrees else 0
-    stats["avg_out_degree"] = np.mean(out_degrees) if out_degrees else 0
-    stats["max_in_degree"] = np.max(in_degrees) if in_degrees else 0
+        new_matrix = np.zeros_like(base_matrix)
+        isolated_docs = 0
 
-    return stats
+        for i, doc_id in enumerate(doc_ids):
+            vec_self = base_matrix[i]
 
+            if doc_id not in G_undir or G_undir.degree(doc_id) == 0:
+                new_matrix[i] = vec_self
+                isolated_docs += 1
+                continue
 
-def get_top_centrality(G: nx.DiGraph, top_k: int = 5):
-    print(f"\nCalcul du PageRank (Centralité)...")
-    if G.number_of_edges() == 0:
-        print("Attention : Graphe vide, impossible de calculer la centralité.")
-        return []
+            neighbors = list(G_undir.neighbors(doc_id))
+            valid_indices = [id_to_idx[n] for n in neighbors if n in id_to_idx]
 
-    try:
-        pagerank = nx.pagerank(G, alpha=0.85)
-        sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[:top_k]
-        print(f"--- Top {top_k} Articles influents (PageRank) ---")
-        return sorted_pr
-    except Exception as e:
-        print(f"Erreur calcul centralité : {e}")
-        return []
+            if not valid_indices:
+                new_matrix[i] = vec_self
+                isolated_docs += 1
+                continue
 
+            vec_neighbors = np.mean(base_matrix[valid_indices], axis=0)
+            new_matrix[i] = alpha * vec_self + (1 - alpha) * vec_neighbors
+        return new_matrix
 
-def visualize_backbone(G: nx.DiGraph, top_k: int = 300):
-    """
-    Affiche le 'squelette' du graphe : les top_k articles les plus influents (PageRank)
-    et les liens qui les relient entre eux.
-    """
-    print(f"\nExtraction du squelette (Top {top_k} PageRank)...")
+    def analyze(self, top_k_centrality: int = 5):
+        """
+        Calcule et affiche les statistiques et la centralité.
+        """
 
-    if G.number_of_nodes() == 0:
-        print("Graphe vide.")
-        return
+        if self.G.number_of_nodes() == 0:
+            print("Graphe vide. Appelez .build() d'abord.")
+            return
 
-    try:
-        pagerank = nx.pagerank(G, alpha=0.85)
-    except:
-        pagerank = dict(G.degree())
+        # Calculs Stats
+        self.stats["num_nodes"] = self.G.number_of_nodes()
+        self.stats["num_edges"] = self.G.number_of_edges()
+        self.stats["density"] = nx.density(self.G)
 
-    top_nodes = [
-        n
-        for n, score in sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[
-            :top_k
+        in_degrees = [d for n, d in self.G.in_degree()]
+        self.stats["avg_in_degree"] = np.mean(in_degrees) if in_degrees else 0
+        self.stats["max_in_degree"] = np.max(in_degrees) if in_degrees else 0
+
+        # Affichage Stats
+        print("\n--- Statistiques du Graphe ---")
+        print(f"Nœuds (Articles) : {self.stats['num_nodes']}")
+        print(f"Arcs (Citations) : {self.stats['num_edges']}")
+        print(f"Densité          : {self.stats['density']:.6f}")
+        print(f"Citations reçues (moyenne) : {self.stats['avg_in_degree']:.2f}")
+        print(f"Article le plus cité       : {self.stats['max_in_degree']} fois")
+
+        # Centralité (si arcs)
+        if self.stats["num_edges"] > 0:
+            print(f"\nCalcul du PageRank (Top {top_k_centrality})...")
+            try:
+                pagerank = nx.pagerank(self.G, alpha=0.85)
+                sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[
+                    :top_k_centrality
+                ]
+
+                print(f"--- Top {top_k_centrality} Articles influents ---")
+                for doc_id, score in sorted_pr:
+                    title = self.corpus[doc_id].get("title", "Sans titre")
+                    print(f"[{score:.4f}] {doc_id} - {title[:80]}...")
+            except Exception as e:
+                print(f"Erreur calcul centralité : {e}")
+        else:
+            print("Pas d'arcs, impossible de calculer la centralité.")
+
+    def visualize(self, top_k: int = 500):
+        """
+        Affiche le squelette du graphe.
+        """
+
+        if self.stats.get("num_edges", 0) == 0:
+            return
+
+        print(f"\nVisualisation du 'Squelette' (Top {top_k})...")
+        try:
+            pagerank = nx.pagerank(self.G, alpha=0.85)
+        except:
+            pagerank = dict(self.G.degree())
+
+        top_nodes = [
+            n
+            for n, s in sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[
+                :top_k
+            ]
         ]
-    ]
+        backbone = self.G.subgraph(top_nodes)
 
-    backbone = G.subgraph(top_nodes)
-    print(
-        f"Squelette extrait : {backbone.number_of_nodes()} noeuds, {backbone.number_of_edges()} arcs."
-    )
+        plt.figure(figsize=(12, 10))
+        try:
+            pos = nx.kamada_kawai_layout(backbone)
+        except:
+            pos = nx.spring_layout(backbone, k=0.3, iterations=50)
 
-    # 4. Dessin
-    plt.figure(figsize=(14, 12))
+        node_sizes = [v * 10 for v in dict(backbone.degree()).values()]
+        node_colors = [dict(backbone.degree())[n] for n in backbone.nodes()]
 
-    # Layout : Kamada-Kawai est souvent meilleur que spring pour les structures déconnectées/clusters
-    print("Calcul du layout (Kamada-Kawai)...")
-    try:
-        pos = nx.kamada_kawai_layout(backbone)
-    except:
-        pos = nx.spring_layout(backbone, k=0.3, iterations=50)
+        nx.draw_networkx_nodes(
+            backbone,
+            pos,
+            node_size=node_sizes,
+            node_color=node_colors,
+            cmap=plt.cm.coolwarm,
+            alpha=0.8,
+        )
+        nx.draw_networkx_edges(
+            backbone, pos, alpha=0.2, edge_color="gray", arrowsize=10
+        )
+        plt.title(f"Squelette du graphe (Top {top_k})")
+        plt.axis("off")
+        plt.show()
 
-    node_sizes = [v * 10 for v in dict(backbone.degree()).values()]
-    node_colors = [dict(backbone.degree())[n] for n in backbone.nodes()]
-
-    nx.draw_networkx_nodes(
-        backbone,
-        pos,
-        node_size=node_sizes,
-        node_color=node_colors,
-        cmap=plt.cm.coolwarm,
-        alpha=0.8,
-    )
-    nx.draw_networkx_edges(backbone, pos, alpha=0.2, edge_color="gray", arrowsize=10)
-
-    plt.title(f"Squelette du graphe de citations (Top {top_k} articles influents)")
-    plt.axis("off")
-    print("Affichage...")
-    plt.show()

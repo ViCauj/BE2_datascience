@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 import os
 from sentence_transformers import SentenceTransformer
+from .graph import CitationGraph
 
 
 class BaseSearchEngine:
@@ -189,3 +190,36 @@ class DenseSearchEngine(BaseSearchEngine):
             similarities = cosine_similarity(query_vec, self.matrix).flatten()
             top_indices = np.argsort(similarities)[-top_k:][::-1]
             return [(self.doc_ids[i], similarities[i]) for i in top_indices]
+
+
+class HybridSearchEngine(DenseSearchEngine):
+    """
+    Moteur hybride combinant embeddings denses (contenu) et lissage par graphe (structure).
+    Hérite de DenseSearchEngine pour réutiliser la logique BERT.
+    """
+
+    def __init__(
+        self,
+        corpus: Dict,
+        queries: Dict,
+        model_name: str = "all-MiniLM-L6-v2",
+        alpha: float = 0.7,
+    ):
+        super().__init__(corpus, queries, model_name)
+        self.alpha = alpha
+
+    def fit(self):
+        """
+        1. Embeddings Denses (BERT).
+        2. Construction du Graphe.
+        3. Lissage par le Graphe.
+        """
+
+        super().fit()
+
+        graph_analyzer = CitationGraph(self.corpus)
+        graph_analyzer.build()
+
+        self.matrix = graph_analyzer.compute_smoothed_embeddings(
+            doc_ids=self.doc_ids, base_matrix=self.matrix, alpha=self.alpha
+        )
