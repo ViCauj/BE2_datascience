@@ -2,3 +2,4 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
+!outputs/Squelette_graphe_top_500.png

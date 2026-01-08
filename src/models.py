@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Optional
 import os
 from sentence_transformers import SentenceTransformer
 from .graph import CitationGraph
+import pandas as pd
 
 
 class BaseSearchEngine:
@@ -107,15 +108,65 @@ class BaseSearchEngine:
 
             print(f"[{score:.4f}]{relevance_msg} {doc_id} - {title[:80]}...")
 
+    def create_submission(self, file_path: str, output_path: str) -> None:
+        """
+        Génère un fichier de soumission Kaggle (CSV) à partir du fichier de test (TSV).
+        """
 
-class BagOfWordsSearchEngine(BaseSearchEngine):
+        print(f"Chargement du fichier de test : {file_path}")
+        try:
+            test_df = pd.read_csv(file_path, sep="\t")
+        except Exception as e:
+            print(f"Erreur lors de la lecture du fichier : {e}")
+            return
+
+        # Vérification rapide des colonnes
+        if "query-id" not in test_df.columns or "corpus-id" not in test_df.columns:
+            print(
+                "Erreur : Le fichier test doit contenir les colonnes 'query-id' et 'corpus-id'."
+            )
+            return
+
+        scores_map = {}
+        unique_queries = test_df["query-id"].unique()
+
+        for qid in unique_queries:
+            subset = test_df[test_df["query-id"] == qid]
+            candidate_ids = subset["corpus-id"].tolist()
+
+            results = self.search(
+                qid, candidate_ids=candidate_ids, top_k=len(candidate_ids)
+            )
+
+            for doc_id, score in results:
+                scores_map[(qid, doc_id)] = score
+
+        test_df["score"] = test_df.apply(
+            lambda row: scores_map.get((row["query-id"], row["corpus-id"]), 0.0), axis=1
+        )
+
+        submission = pd.DataFrame(
+            {
+                "RowId": range(1, len(test_df) + 1),
+                "query-id": test_df["query-id"],
+                "corpus-id": test_df["corpus-id"],
+                "score": test_df["score"],
+            }
+        )
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        submission.to_csv(output_path, index=False)
+        print(f"Soumission générée avec succès : {output_path}")
+
+
+class BagOfWordsCountSearchEngine(BaseSearchEngine):
     def __init__(self, corpus: Dict, queries: Dict, **kwargs):
         super().__init__(corpus, queries, **kwargs)
         default = {"stop_words": "english", "max_features": 50000}
         self.vectorizer = CountVectorizer(**{**default, **kwargs})
 
 
-class TfidfSearchEngine(BaseSearchEngine):
+class BagOfWordsTfidfSearchEngine(BaseSearchEngine):
     def __init__(self, corpus: Dict, queries: Dict, **kwargs):
         super().__init__(corpus, queries, **kwargs)
         default = {"stop_words": "english", "max_features": 50000}
@@ -223,3 +274,96 @@ class HybridSearchEngine(DenseSearchEngine):
         self.matrix = graph_analyzer.compute_smoothed_embeddings(
             doc_ids=self.doc_ids, base_matrix=self.matrix, alpha=self.alpha
         )
+
+
+class EnsembleSearchEngine(BaseSearchEngine):
+    """
+    Combine les scores du meilleur modèle et du TF-IDF.
+    """
+
+    def __init__(self, corpus: Dict, queries: Dict, alpha: float = 0.85):
+        super().__init__(corpus, queries)
+        self.alpha = alpha
+
+        self.strong_model = GCNSearchEngine(
+            corpus, queries, model_name="all-MiniLM-L6-v2", k_hops=3, alpha=0.65
+        )
+        self.weak_model = BagOfWordsTfidfSearchEngine(corpus, queries)
+
+    def fit(self):
+        self.strong_model.fit()
+        self.weak_model.fit()
+
+    def search(
+        self, query_id: str, candidate_ids: Optional[List[str]] = None, top_k: int = 10
+    ) -> List[Tuple[str, float]]:
+        candidates_to_score = candidate_ids
+
+        # Si aucun candidat n'est imposé, on laisse le modèle fort proposer son top 50
+        if candidates_to_score is None:
+            strong_results = self.strong_model.search(query_id, top_k=50)
+            candidates_to_score = [doc_id for doc_id, _ in strong_results]
+
+        # On force top_k=len(candidates) pour récupérer tous les scores sans filtrage
+        res_strong = dict(
+            self.strong_model.search(
+                query_id,
+                candidate_ids=candidates_to_score,
+                top_k=len(candidates_to_score),
+            )
+        )
+        res_weak = dict(
+            self.weak_model.search(
+                query_id,
+                candidate_ids=candidates_to_score,
+                top_k=len(candidates_to_score),
+            )
+        )
+
+        final_results = []
+        for doc_id in candidates_to_score:
+            s_strong = res_strong.get(doc_id, 0.0)
+            s_weak = res_weak.get(doc_id, 0.0)
+
+            # Moyenne pondérée
+            final_score = self.alpha * s_strong + (1 - self.alpha) * s_weak
+            final_results.append((doc_id, final_score))
+
+        final_results.sort(key=lambda x: x[1], reverse=True)
+        return final_results[:top_k]
+
+
+class GCNSearchEngine(DenseSearchEngine):
+    """
+    Implémente une approche GCN simplifiée.
+    Capture les relations à longue distance (voisins des voisins).
+    """
+
+    def __init__(
+        self,
+        corpus: Dict,
+        queries: Dict,
+        model_name: str = "all-MiniLM-L6-v2",
+        k_hops: int = 3,
+        alpha: float = 0.65,
+    ):
+        super().__init__(corpus, queries, model_name)
+        self.k_hops = k_hops
+        self.alpha = alpha
+
+    def fit(self):
+        super().fit()
+
+        graph_analyzer = CitationGraph(self.corpus)
+        graph_analyzer.build()
+
+        current_matrix = self.matrix
+
+        for i in range(self.k_hops):
+            print(f"Couche GCN {i + 1}/{self.k_hops}...")
+            current_matrix = graph_analyzer.compute_smoothed_embeddings(
+                doc_ids=self.doc_ids, base_matrix=current_matrix, alpha=self.alpha
+            )
+
+        self.matrix = current_matrix
+        print("Propagation GCN terminée.")
