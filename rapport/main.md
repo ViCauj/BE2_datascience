@@ -46,7 +46,7 @@ Le corpus a été modélisé comme un graphe orienté $G=(V, E)$ via la classe `
 
 La visualisation du squelette du graphe (ci-dessous) montre clairement que les articles ne se citent pas au hasard : ils forment des grappes denses. Cela valide notre hypothèse d'**homophilie** : un article pertinent a une forte probabilité d'être connecté à d'autres articles pertinents.
 
-<p align="center"><img src="../outputs/Squelette_graphe_top_500.png" width="500"></p>
+<p align="center"><img src="../outputs/Squelette_graphe_top_1500.png" width="400"></p>
 
 *Figure 1 : Visualisation des 500 articles les plus connectés (Squelette du graphe). On observe des clusters distincts correspondant aux différents domaines scientifiques.*
 

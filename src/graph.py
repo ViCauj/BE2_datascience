@@ -139,19 +139,14 @@ class CitationGraph:
 
         print(f"Génération de la visualisation du graphe (Top {top_k})...")
 
-        # 1. Extraction du sous-graphe (les articles les plus connectés)
-        # CORRECTION : self.G au lieu de self.graph
         degrees = dict(self.G.degree())
         top_nodes = sorted(degrees, key=degrees.get, reverse=True)[:top_k]
 
-        # CORRECTION : self.G au lieu de self.graph
         subgraph = self.G.subgraph(top_nodes)
 
-        # 2. Détection de communautés (pour colorer par "Domaine Scientifique")
         print("   - Détection des communautés...")
         try:
             communities_generator = community.greedy_modularity_communities(subgraph)
-            # Création d'une map {noeud -> id_communauté}
             node_community = {}
             for i, comm in enumerate(communities_generator):
                 for node in comm:
@@ -168,25 +163,19 @@ class CitationGraph:
             node_colors = "skyblue"
             cmap = None
 
-        # 3. Calcul de l'importance (PageRank) pour la taille des points
         try:
             pr = nx.pagerank(subgraph)
-            # On multiplie le PageRank par un facteur pour que les points soient visibles
             node_sizes = [pr[n] * 50000 for n in subgraph.nodes()]
         except:
             node_sizes = 50  # Taille par défaut si échec
 
-        # 4. Calcul du Layout (Positionnement)
         print("   - Calcul du layout (Spring)...")
         pos = nx.spring_layout(subgraph, k=0.20, iterations=50, seed=42)
 
-        # 5. Dessin
         plt.figure(figsize=(15, 15))
 
-        # Dessin des arêtes
         nx.draw_networkx_edges(subgraph, pos, alpha=0.1, edge_color="gray")
 
-        # Dessin des noeuds
         sc = nx.draw_networkx_nodes(
             subgraph,
             pos,
@@ -206,6 +195,6 @@ class CitationGraph:
         try:
             plt.savefig(output_path, dpi=300, bbox_inches="tight")
             plt.close()
-            print(f"✅ Visualisation sauvegardée : {output_path}")
+            print(f"Visualisation sauvegardée : {output_path}")
         except Exception as e:
             print(f"Erreur lors de la sauvegarde de l'image : {e}")
