@@ -63,7 +63,9 @@ def main():
     graph_analysis.analyze(top_k_centrality=5)
     # Visualisation (Uniquement si le graphe n'est pas vide)
     if graph_analysis.stats.get("num_edges", 0) > 0:
-        graph_analysis.visualize(top_k=500)
+        graph_analysis.visualize(
+            top_k=1500, output_path="outputs/Squelette_graphe_top_1500.png"
+        )
 
 
 if __name__ == "__main__":

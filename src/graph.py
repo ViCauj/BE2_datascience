@@ -121,49 +121,91 @@ class CitationGraph:
         else:
             print("Pas d'arcs, impossible de calculer la centralité.")
 
-    def visualize(self, top_k: int = 500):
+    def visualize(
+        self,
+        top_k: int = 500,
+        output_path: str = "outputs/Squelette_graphe_top_500.png",
+    ):
         """
-        Affiche le squelette du graphe.
+        Génère une visualisation interprétable du squelette du graphe.
+        Améliorations :
+        - Clustering : Couleurs basées sur la détection de communautés (domaines).
+        - Taille : Basée sur le PageRank (importance).
+        - Layout : Force-directed plus espacé pour voir les grappes.
         """
+        import matplotlib.pyplot as plt
+        import networkx as nx
+        from networkx.algorithms import community
 
-        if self.stats.get("num_edges", 0) == 0:
-            return
+        print(f"Génération de la visualisation du graphe (Top {top_k})...")
 
-        print(f"\nVisualisation du 'Squelette' (Top {top_k})...")
+        # 1. Extraction du sous-graphe (les articles les plus connectés)
+        # CORRECTION : self.G au lieu de self.graph
+        degrees = dict(self.G.degree())
+        top_nodes = sorted(degrees, key=degrees.get, reverse=True)[:top_k]
+
+        # CORRECTION : self.G au lieu de self.graph
+        subgraph = self.G.subgraph(top_nodes)
+
+        # 2. Détection de communautés (pour colorer par "Domaine Scientifique")
+        print("   - Détection des communautés...")
         try:
-            pagerank = nx.pagerank(self.G, alpha=0.85)
-        except:
-            pagerank = dict(self.G.degree())
+            communities_generator = community.greedy_modularity_communities(subgraph)
+            # Création d'une map {noeud -> id_communauté}
+            node_community = {}
+            for i, comm in enumerate(communities_generator):
+                for node in comm:
+                    node_community[node] = i
 
-        top_nodes = [
-            n
-            for n, s in sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[
-                :top_k
-            ]
-        ]
-        backbone = self.G.subgraph(top_nodes)
+            nb_comms = len(communities_generator)
+            print(f"   - {nb_comms} communautés détectées.")
+            node_colors = [node_community.get(n, 0) for n in subgraph.nodes()]
+            cmap = plt.cm.tab20  # Palette de couleurs distinctes
+        except Exception as e:
+            print(
+                f"   Warning: Détection de communautés échouée ({e}), utilisation couleur unique."
+            )
+            node_colors = "skyblue"
+            cmap = None
 
-        plt.figure(figsize=(12, 10))
+        # 3. Calcul de l'importance (PageRank) pour la taille des points
         try:
-            pos = nx.kamada_kawai_layout(backbone)
+            pr = nx.pagerank(subgraph)
+            # On multiplie le PageRank par un facteur pour que les points soient visibles
+            node_sizes = [pr[n] * 50000 for n in subgraph.nodes()]
         except:
-            pos = nx.spring_layout(backbone, k=0.3, iterations=50)
+            node_sizes = 50  # Taille par défaut si échec
 
-        node_sizes = [v * 10 for v in dict(backbone.degree()).values()]
-        node_colors = [dict(backbone.degree())[n] for n in backbone.nodes()]
+        # 4. Calcul du Layout (Positionnement)
+        print("   - Calcul du layout (Spring)...")
+        pos = nx.spring_layout(subgraph, k=0.20, iterations=50, seed=42)
 
-        nx.draw_networkx_nodes(
-            backbone,
+        # 5. Dessin
+        plt.figure(figsize=(15, 15))
+
+        # Dessin des arêtes
+        nx.draw_networkx_edges(subgraph, pos, alpha=0.1, edge_color="gray")
+
+        # Dessin des noeuds
+        sc = nx.draw_networkx_nodes(
+            subgraph,
             pos,
             node_size=node_sizes,
             node_color=node_colors,
-            cmap=plt.cm.coolwarm,
-            alpha=0.8,
+            cmap=cmap,
+            alpha=0.9,
         )
-        nx.draw_networkx_edges(
-            backbone, pos, alpha=0.2, edge_color="gray", arrowsize=10
-        )
-        plt.title(f"Squelette du graphe (Top {top_k})")
-        plt.axis("off")
-        plt.show()
 
+        plt.title(
+            f"Squelette du Graphe de Citations (Top {top_k} articles)\nCouleur = Communauté (Domaine), Taille = PageRank (Influence)",
+            fontsize=16,
+        )
+        plt.axis("off")
+
+        # Sauvegarde
+        try:
+            plt.savefig(output_path, dpi=300, bbox_inches="tight")
+            plt.close()
+            print(f"✅ Visualisation sauvegardée : {output_path}")
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde de l'image : {e}")
